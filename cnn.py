@@ -35,7 +35,7 @@ class GemLowImagesDataset(Dataset):
         img_name = "well" + format(idx, '04') + "_day02_well.png"
         img_path = os.path.join(self.root_dir, img_name)
         image = io.imread(img_path)
-        label = self.labels.iloc[idx]
+        label = 1 if self.labels.iloc[idx][0] == 'Y' else 0
 
         if self.transform:
             image = self.transform(image)
@@ -50,7 +50,7 @@ class ToTensor(object):
         # numpy image: H x W x C
         # torch image: C X H X W
         image = image.transpose((2, 0, 1))
-        return image
+        return image[:3,:,:]
 
 def train_model(data_loaders, model, criterion, optimizer, scheduler, num_epochs=25):
     use_gpu = torch.cuda.is_available()
@@ -71,6 +71,7 @@ def train_model(data_loaders, model, criterion, optimizer, scheduler, num_epochs
             running_corrects = 0
 
             for inputs, labels in data_loaders[phase]:
+                inputs, labels = inputs.type('torch.FloatTensor'), labels.type('torch.LongTensor')
                 if use_gpu:
                     inputs, labels = Variable(inputs.cuda()), Variable(labels.cuda())
                 else:
@@ -86,7 +87,7 @@ def train_model(data_loaders, model, criterion, optimizer, scheduler, num_epochs
                     loss.backward()
                     optimizer.step()
 
-                running_loss += loss.data[0]
+                running_loss += loss.data.item()
                 running_corrects += torch.sum(preds == labels.data)
 
             if phase == 'train':
@@ -123,7 +124,7 @@ loader_val = DataLoader(transformed_dataset, batch_size=64,
 data_loaders = {"train": loader_train, "valid": loader_val}
 
 use_gpu = torch.cuda.is_available()
-
+print(use_gpu)
 resnet = models.resnet50(pretrained=True)
 # freeze all model parameters
 for param in resnet.parameters():
