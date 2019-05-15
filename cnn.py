@@ -1,6 +1,7 @@
 from __future__ import print_function, division
 import os
 import torch
+import torch.nn as nn
 import pandas as pd
 from skimage import io, transform
 import numpy as np
@@ -125,19 +126,21 @@ data_loaders = {"train": loader_train, "valid": loader_val}
 
 use_gpu = torch.cuda.is_available()
 print(use_gpu)
-resnet = models.resnet50(pretrained=True)
+alexnet = models.alexnet(pretrained=True)
 # freeze all model parameters
-for param in resnet.parameters():
+for param in alexnet.parameters():
     param.requires_grad = False
 
 # new final layer with 2 classes
-num_ftrs = resnet.fc.in_features
-resnet.fc = torch.nn.Linear(num_ftrs, 2)
+#num_ftrs = alexnet.fc.in_features
+#resnet.fc = torch.nn.Linear(num_ftrs, 2)
+alexnet.classifier[6] = nn.Linear(4096, 2)
+
 if use_gpu:
-    resnet = resnet.cuda()
+    alexnet = alexnet.cuda()
 
 criterion = torch.nn.CrossEntropyLoss()
-optimizer = torch.optim.SGD(resnet.fc.parameters(), lr=0.001, momentum=0.9)
+optimizer = torch.optim.SGD(alexnet.classifier[6].parameters(), lr=0.01, momentum=0.9)
 exp_lr_scheduler = lr_scheduler.StepLR(optimizer, step_size=7, gamma=0.1)
 
-model = train_model(data_loaders, resnet, criterion, optimizer, exp_lr_scheduler, num_epochs=2)
+model = train_model(data_loaders, alexnet, criterion, optimizer, exp_lr_scheduler, num_epochs=25)
