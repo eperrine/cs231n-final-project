@@ -12,6 +12,7 @@ from torchvision import transforms, datasets, models, utils
 from torch.optim import lr_scheduler
 from torch.autograd import Variable
 from tensorboardX import SummaryWriter
+from sklearn.metrics import confusion_matrix
 
 # Ignore warnings
 import warnings
@@ -21,6 +22,7 @@ num_train = 4000
 num_val = 1000
 num_total = num_train + num_val
 num_test = 1000
+num_classes = 3
 
 class GemLowImagesDataset(Dataset):
     def __init__(self, csv_file, root_dir, csv_file2=None, root_dir2=None, transform=None, test=False):
@@ -49,7 +51,7 @@ class GemLowImagesDataset(Dataset):
             img_name = "well" + format(idx, '04') + "_day07_well.png"
             img_path = os.path.join(self.root_dir2, img_name)
             is_cell = self.labels2.iloc[idx][1] == 'Y'
-            is_alive = self.labels2.iloc[idx][2] == 'Y'
+            is_alive = num_classes == 3 and self.labels2.iloc[idx][2] == 'Y'
             if is_cell:
                 label = 2 if is_alive else 1
             else:
@@ -137,8 +139,63 @@ def train_model(data_loaders, model, criterion, optimizer, scheduler, num_epochs
     model.load_state_dict(best_model_wts)
     return model
 
+def plot_confusion_matrix(y_true, y_pred, classes,
+                          normalize=False,
+                          title=None,
+                          cmap=plt.cm.Blues):
+    """
+    This function prints and plots the confusion matrix.
+    Normalization can be applied by setting `normalize=True`.
+    """
+    if not title:
+        if normalize:
+            title = 'Normalized confusion matrix'
+        else:
+            title = 'Confusion matrix, without normalization'
+            
+        # Compute confusion matrix
+        cm = confusion_matrix(y_true, y_pred)
+        # Only use the labels that appear in the data
+        #classes = classes[unique_labels(y_true, y_pred)]
+        if normalize:
+            cm = cm.astype('float') / cm.sum(axis=1)[:, np.newaxis]
+            print("Normalized confusion matrix")
+        else:
+            print('Confusion matrix, without normalization')
+
+        print(cm)
+
+        fig, ax = plt.subplots()
+        im = ax.imshow(cm, interpolation='nearest', cmap=cmap)
+        ax.figure.colorbar(im, ax=ax)
+        # We want to show all ticks...
+        ax.set(xticks=np.arange(cm.shape[1]),
+               yticks=np.arange(cm.shape[0]),
+               # ... and label them with the respective list entries
+               xticklabels=classes, yticklabels=classes,
+               title=title,
+               ylabel='True label',
+               xlabel='Predicted label')
+        
+        # Rotate the tick labels and set their alignment.
+        plt.setp(ax.get_xticklabels(), rotation=45, ha="right",
+                 rotation_mode="anchor")
+        
+        # Loop over data dimensions and create text annotations.
+        fmt = '.2f' if normalize else 'd'
+        thresh = cm.max() / 2.
+        for i in range(cm.shape[0]):
+            for j in range(cm.shape[1]):
+                ax.text(j, i, format(cm[i, j], fmt),
+                        ha="center", va="center",
+                        color="white" if cm[i, j] > thresh else "black")
+        fig.tight_layout()
+
+        plt.savefig('confusion_matrix.png')
+
 def test_model(model, test_loader):
     test_acc = 0.0
+    all_labels, all_preds = None, None
     for images, labels in test_loader:
         images, labels = images.type('torch.FloatTensor'), labels.type('torch.LongTensor')
         if torch.cuda.is_available():
@@ -147,9 +204,15 @@ def test_model(model, test_loader):
         # Predict classes using images from the test set
         outputs = model(images)
         _, prediction = torch.max(outputs.data, 1)
-        
+        if all_labels is None:
+            all_labels = labels.data.cpu().clone()
+            all_preds = prediction.cpu().clone()
+        else:
+            all_labels = torch.cat((all_labels, labels.data.cpu().clone()))
+            all_preds = torch.cat((all_preds, prediction.cpu().clone()))
         test_acc += torch.sum(prediction == labels.data).item()
-
+    class_names = ["no cell", "cell"] if num_classes == 2 else ["no cell", "dead cell", "alive cell"]
+    plot_confusion_matrix(all_labels, all_preds, class_names)
     test_acc = test_acc / (num_test * 2)
     print('Test acc: {:4f}'.format(test_acc))
 
@@ -203,19 +266,19 @@ if mode == 'train':
     #    writer.add_graph(net, transformed_dataset.to_array(), verbose=True)
     criterion = torch.nn.CrossEntropyLoss()
     optimizer = torch.optim.SGD(net.parameters(), lr=lr, momentum=0.9)
-    exp_lr_scheduler = lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
+    exp_lr_scheduler = lr_scheduler.StepLR(optimizer, step_size=7, gamma=0.1)
     #5e-4 learning rate actually leads to increase in val accuracy for alexnet
     model = train_model(data_loaders, net, criterion, optimizer, exp_lr_scheduler, num_epochs=25)
 else:
     net = models.resnet50(pretrained=False)
     num_ftrs = net.fc.in_features
-    net.fc = torch.nn.Linear(num_ftrs, 3)
+    net.fc = torch.nn.Linear(num_ftrs, num_classes)
     use_gpu = torch.cuda.is_available()
     if use_gpu:
         net = net.cuda()            
-    net.load_state_dict(torch.load('resnet_cnn_three_class.pth'))
+    net.load_state_dict(torch.load('resnet_cnn3.pth' if num_classes != 3 else 'resnet_cnn_three_class.pth'))
     net.eval()
     loader_train = DataLoader(transformed_dataset, batch_size=64,
                               sampler=sampler.SubsetRandomSampler(list(range(num_total, num_total + num_test)) + list(range(num_total * 2 + num_test, (num_total + num_test) * 2))))
     test_model(net, loader_train)
-    compute_saliency_maps(net, loader_train)
+    #compute_saliency_maps(net, loader_train)
