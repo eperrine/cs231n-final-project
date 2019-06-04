@@ -49,9 +49,9 @@ class GemLowImagesDataset(Dataset):
             img_name = "well" + format(idx, '04') + "_day07_well.png"
             img_path = os.path.join(self.root_dir2, img_name)
             is_cell = self.labels2.iloc[idx][1] == 'Y'
-            is_alive = self.labels2.iloc[idx][2] == 'Y'
+            #is_alive = self.labels2.iloc[idx][2] == 'Y'
             if is_cell:
-                label = 2 if is_alive else 1
+                label = 1 #if is_alive else 1
             else:
                 label = 0
         else:
@@ -203,17 +203,17 @@ if mode == 'train':
     #    writer.add_graph(net, transformed_dataset.to_array(), verbose=True)
     criterion = torch.nn.CrossEntropyLoss()
     optimizer = torch.optim.SGD(net.parameters(), lr=lr, momentum=0.9)
-    exp_lr_scheduler = lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
+    exp_lr_scheduler = lr_scheduler.StepLR(optimizer, step_size=7, gamma=0.1)
     #5e-4 learning rate actually leads to increase in val accuracy for alexnet
     model = train_model(data_loaders, net, criterion, optimizer, exp_lr_scheduler, num_epochs=25)
 else:
     net = models.resnet50(pretrained=False)
     num_ftrs = net.fc.in_features
-    net.fc = torch.nn.Linear(num_ftrs, 3)
+    net.fc = torch.nn.Linear(num_ftrs, 2)
     use_gpu = torch.cuda.is_available()
     if use_gpu:
         net = net.cuda()            
-    net.load_state_dict(torch.load('resnet_cnn_three_class.pth'))
+    net.load_state_dict(torch.load('resnet_cnn3.pth'))
     net.eval()
     loader_train = DataLoader(transformed_dataset, batch_size=64,
                               sampler=sampler.SubsetRandomSampler(list(range(num_total, num_total + num_test)) + list(range(num_total * 2 + num_test, (num_total + num_test) * 2))))
